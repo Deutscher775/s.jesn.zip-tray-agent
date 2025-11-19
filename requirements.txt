@@ -1,5 +1,5 @@
 requests
-win10toast
+winrt
 Pillow
 pystray
 pywin32

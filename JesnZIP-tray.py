@@ -26,8 +26,15 @@ import win32con
 import pystray
 from pystray import MenuItem
 from PIL import Image as PILImage
-from win10toast import ToastNotifier
 from win32com.client import Dispatch
+import tkinter as _tk
+from tkinter import simpledialog
+try:
+    from winrt.windows.ui.notifications import ToastNotificationManager, ToastNotification
+    from winrt.windows.data.xml.dom import XmlDocument
+    HAVE_WINRT = True
+except Exception:
+    HAVE_WINRT = False
 
 # Logging
 log_file = "JZIP-debug.log"
@@ -65,8 +72,7 @@ def save_settings(settings):
 
 settings = load_settings()
 
-# Toast notifier (singleton)
-toaster = ToastNotifier()
+
 
 
 def set_clipboard_text(text: str):
@@ -82,54 +88,24 @@ def set_clipboard_text(text: str):
 
 def show_notification(title: str, message: str, duration: int = 4):
     try:
-        # Try to use win10toast with an icon if available
-        icon_path = str((BASE_DIR / 'ICON.ico')) if (BASE_DIR / 'ICON.ico').exists() else None
-        logging.debug(f"Attempting toast: title={title}, message={message}, icon={icon_path}")
-        if icon_path:
-            toaster.show_toast(title, message, icon_path=icon_path, duration=duration, threaded=True)
-        else:
-            toaster.show_toast(title, message, duration=duration, threaded=True)
-
-        # Wait briefly to see whether the notifier became active
-        waited = 0
-        while waited < 2:
+        # Use native WinRT toasts only
+        if HAVE_WINRT:
             try:
-                active = getattr(toaster, 'notification_active', None)
-                if callable(active):
-                    if active():
-                        logging.debug(f"Toast displayed: {title} - {message}")
-                        return
-                else:
-                    # If notification_active not available, assume success
-                    logging.debug("toaster.notification_active not available; assuming toast displayed")
-                    return
-            except Exception:
-                logging.debug("Error while checking notification_active; assuming not active")
-            time.sleep(0.2)
-            waited += 0.2
-
-        logging.warning("Toast not confirmed active; falling back to tray-message")
-        # Fallback: if pystray icon exists, try to show a balloon via icon.notify
-        try:
-            # If an icon is running, use its notify (pystray implementations may vary)
-            # We attempt to locate the running icon via pystray._base.Icon._icons if present (best-effort)
-            for obj in list(pystray._base.Icon._icons):
-                try:
-                    obj.notify(f"{title}: {message}")
-                    logging.debug("Fallback notify via pystray icon")
-                    return
-                except Exception:
-                    continue
-        except Exception:
-            logging.debug("pystray fallback notify not available")
-
-        # Last resort: simple message box (less ideal, but visible)
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(0, message, title, 0)
-            logging.debug("Fallback MessageBox shown")
-        except Exception as e:
-            logging.error(f"Failed to show fallback MessageBox: {e}")
+                logging.debug("Using WinRT toast")
+                tplt = f"<toast><visual><binding template='ToastGeneric'><text>{title}</text><text>{message}</text></binding></visual></toast>"
+                xml = XmlDocument()
+                xml.load_xml(tplt)
+                notifier = ToastNotificationManager.create_toast_notifier('JesnZIP')
+                toast = ToastNotification(xml)
+                notifier.show(toast)
+                logging.debug("WinRT toast shown")
+                return
+            except Exception as e:
+                logging.exception(f"WinRT toast failed: {e}")
+                return
+        else:
+            logging.warning("WinRT not available; skipping notification (winrt package missing)")
+            return
     except Exception as e:
         logging.error(f"Failed to show notification: {e}")
 
@@ -168,7 +144,11 @@ def upload_path(path: str, filename: str = None):
         with open(path, "rb") as f:
             files = {"file": (filename, f)}
             headers = {"origin": ORIGIN_HEADER}
-            logging.debug(f"Uploading {path} to {UPLOAD_ENDPOINT}")
+            # include Authorization header when a session_key is set
+            sk = settings.get('session_key')
+            if sk:
+                headers['Authorization'] = sk
+            logging.debug(f"Uploading {path} to {UPLOAD_ENDPOINT} with headers keys: {list(headers.keys())}")
             resp = requests.post(UPLOAD_ENDPOINT, files=files, headers=headers, timeout=60)
         if resp.status_code in (200, 201):
             data = resp.json()
@@ -251,6 +231,39 @@ def toggle_auto_upload(icon, item):
         icon.menu = make_menu(icon)
     except Exception:
         logging.exception("Failed to update menu after toggling auto_upload")
+
+
+def prompt_for_session_key(icon, item=None):
+    try:
+        # Use a simple tkinter dialog to request session key
+        root = _tk.Tk()
+        root.withdraw()
+        key = simpledialog.askstring("JesnZIP Login", "Enter session key (Authorization header):", parent=root)
+        root.destroy()
+        if key:
+            settings['session_key'] = key.strip()
+            save_settings(settings)
+            show_notification("JesnZIP", "Session key saved", duration=3)
+            try:
+                icon.menu = make_menu(icon)
+            except Exception:
+                logging.exception("Failed to update menu after setting session_key")
+    except Exception as e:
+        logging.error(f"prompt_for_session_key failed: {e}")
+
+
+def logout(icon, item=None):
+    try:
+        if 'session_key' in settings:
+            del settings['session_key']
+            save_settings(settings)
+        show_notification("JesnZIP", "Logged out", duration=3)
+        try:
+            icon.menu = make_menu(icon)
+        except Exception:
+            logging.exception("Failed to update menu after logout")
+    except Exception as e:
+        logging.error(f"logout failed: {e}")
 
 
 def _startup_shortcut_path():
@@ -344,8 +357,14 @@ def exit_app(icon, item=None):
 def make_menu(icon):
     auto_label = ("Disable Auto-Upload" if settings.get('auto_upload', True) else "Enable Auto-Upload")
     autostart_label = ("Disable Autostart" if is_autostart_enabled() else "Enable Autostart")
+    # Login/Logout menu item
+    if settings.get('session_key'):
+        auth_item = MenuItem("Logout", logout)
+    else:
+        auth_item = MenuItem("Login / Set Session Key", prompt_for_session_key)
     return pystray.Menu(
         MenuItem("Open s.jesn.zip", open_site),
+        auth_item,
         MenuItem(auto_label, toggle_auto_upload),
         MenuItem(autostart_label, toggle_autostart),
         MenuItem("Restart", restart),
