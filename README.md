@@ -1,3 +1,5 @@
+<img src="https://s.jesn.zip/u/weasel/s.jesn.zip%20icon.png">
+
 JesnZIP Tray Agent - README
 ===========================
 
@@ -43,3 +45,4 @@ Notes
 Support
 -------
 If you need help running or building the tray agent, tell me what error you see and I'll help debug.
+
