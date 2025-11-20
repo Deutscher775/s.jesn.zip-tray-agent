@@ -1,9 +1,15 @@
 <img src="https://s.jesn.zip/u/weasel/s.jesn.zip%20icon.png">
 
-JesnZIP Tray Agent - README
+JesnZIP Tray Agent
 ===========================
 
-This document contains instructions specific to the Windows tray agent `JesnZIP-tray.py` and how to build it into an executable.
+This the tray agent that automatically uploads screenshots, pictures and videos inside your clipboard so https://s.jesn.zip file sharing.
+## Note
+This is completely loginless usable. A login is only required if you want to:
+1. save files permanently
+2. want them to show up in the "My  Files" on the webite for future uses
+
+Max file size is 1Gb
 
 # Installation
 - Download the latest `installer.exe` in the releases tab
@@ -40,5 +46,6 @@ Notes
 Support
 -------
 If you need help running or building the tray agent, tell me what error you see and I'll help debug.
+
 
 
