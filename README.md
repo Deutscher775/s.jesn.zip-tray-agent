@@ -5,7 +5,16 @@ JesnZIP Tray Agent - README
 
 This document contains instructions specific to the Windows tray agent `JesnZIP-tray.py` and how to build it into an executable.
 
-Quick run (development)
+# Installation
+- Download the latest `installer.exe` in the releases tab
+- Follow the instructions in the terminal
+
+This will also:
+- Ensure pip is up-to-date and install requirements from `requirements.txt`.
+- Run PyInstaller to create a single-file (onefile) windowed executable using `ICON.ico` if present.
+- Zip the created executable into a timestamped .zip located in the repository root.
+
+Run it yourself (development or build the executable yourself)
 -----------------------
 
 ```powershell
@@ -19,21 +28,7 @@ Install runtime & build dependencies
 python -m pip install -r .\requirements.txt
 ```
 
-Build a single-file executable with PyInstaller
-----------------------------------------------
 
-A helper PowerShell script `build_installer.ps1` is included to install dependencies and run PyInstaller.
-
-Run:
-
-```powershell
-.\build_installer.ps1
-```
-
-This will:
-- Ensure pip is up-to-date and install requirements from `requirements.txt`.
-- Run PyInstaller to create a single-file (onefile) windowed executable using `ICON.ico` if present.
-- Zip the created executable into a timestamped .zip located in the repository root.
 
 Notes
 -----
@@ -45,4 +40,5 @@ Notes
 Support
 -------
 If you need help running or building the tray agent, tell me what error you see and I'll help debug.
+
 
