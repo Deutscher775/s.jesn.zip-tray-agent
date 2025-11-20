@@ -18,6 +18,7 @@ import tempfile
 import hashlib
 import webbrowser
 from pathlib import Path
+import subprocess
 
 import requests
 from PIL import Image, ImageGrab
@@ -35,6 +36,25 @@ try:
     HAVE_WINRT = True
 except Exception:
     HAVE_WINRT = False
+
+
+# Support a subprocess mode to show a tkinter prompt on the main thread.
+# When the script/exe is invoked with `--session-prompt` it shows the dialog
+# and prints the entered key to stdout. This allows the tray process to spawn
+# a separate process (same exe) which runs tkinter on its own main thread.
+if '--session-prompt' in sys.argv:
+    try:
+        root = _tk.Tk()
+        root.withdraw()
+        key = simpledialog.askstring("JesnZIP Login", "Enter session key (Authorization header):", parent=root)
+        root.destroy()
+        if key:
+            # Print to stdout for the parent to capture
+            print(key, end='', flush=True)
+        sys.exit(0)
+    except Exception:
+        # Ensure we always exit
+        sys.exit(1)
 
 # Logging
 log_file = "JZIP-debug.log"
@@ -235,19 +255,26 @@ def toggle_auto_upload(icon, item):
 
 def prompt_for_session_key(icon, item=None):
     try:
-        # Use a simple tkinter dialog to request session key
-        root = _tk.Tk()
-        root.withdraw()
-        key = simpledialog.askstring("JesnZIP Login", "Enter session key (Authorization header):", parent=root)
-        root.destroy()
-        if key:
-            settings['session_key'] = key.strip()
-            save_settings(settings)
-            show_notification("JesnZIP", "Session key saved", duration=3)
-            try:
-                icon.menu = make_menu(icon)
-            except Exception:
-                logging.exception("Failed to update menu after setting session_key")
+        # Invoke a separate process (same exe/script) to show the tkinter dialog
+        # This ensures the dialog runs on the subprocess main thread and accepts input.
+        exe = sys.executable
+        script = Path(__file__).resolve()
+        cmd = [str(exe), str(script), '--session-prompt']
+        logging.debug(f"Launching session prompt subprocess: {cmd}")
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0 and proc.stdout:
+            key = proc.stdout.strip()
+            if key:
+                settings['session_key'] = key
+                save_settings(settings)
+                show_notification("JesnZIP", "Session key saved", duration=3)
+                try:
+                    icon.menu = make_menu(icon)
+                except Exception:
+                    logging.exception("Failed to update menu after setting session_key")
+                return
+        # If we reach here, nothing was entered or subprocess failed
+        show_notification("JesnZIP", "No session key entered", duration=2)
     except Exception as e:
         logging.error(f"prompt_for_session_key failed: {e}")
 
@@ -355,18 +382,14 @@ def exit_app(icon, item=None):
 
 
 def make_menu(icon):
-    auto_label = ("Disable Auto-Upload" if settings.get('auto_upload', True) else "Enable Auto-Upload")
-    autostart_label = ("Disable Autostart" if is_autostart_enabled() else "Enable Autostart")
     # Login/Logout menu item
-    if settings.get('session_key'):
-        auth_item = MenuItem("Logout", logout)
-    else:
-        auth_item = MenuItem("Login / Set Session Key", prompt_for_session_key)
+    auth_item = MenuItem("Logout", logout) if settings.get('session_key') else MenuItem("Login / Set Session Key", prompt_for_session_key)
+
     return pystray.Menu(
         MenuItem("Open s.jesn.zip", open_site),
         auth_item,
-        MenuItem(auto_label, toggle_auto_upload),
-        MenuItem(autostart_label, toggle_autostart),
+        MenuItem("Auto-Upload", toggle_auto_upload, checked=lambda item: settings.get('auto_upload', True)),
+        MenuItem("Autostart", toggle_autostart, checked=lambda item: is_autostart_enabled()),
         MenuItem("Restart", restart),
         MenuItem("Exit", exit_app)
     )
