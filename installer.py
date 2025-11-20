@@ -64,8 +64,10 @@ def ensure_venv(py_exe: str = sys.executable) -> Path:
     (e.g. `py -3` or `python`) and use it to create the venv.
     """
     def find_system_python() -> str | None:
+        # Prefer Python 3.9 specifically. Return the full command list to invoke it.
         candidates = [
             ['py', '-3.9'],
+            ['py', '-3.10'],
             ['py', '-3'],
             ['python']
         ]
@@ -76,26 +78,58 @@ def ensure_venv(py_exe: str = sys.executable) -> Path:
                 res = subprocess.run(test, capture_output=True, text=True)
                 if res.returncode == 0:
                     out = (res.stdout or res.stderr).strip()
+                    if out.startswith('3.9'):
+                        return cmd
+            except Exception:
+                continue
+        # If we didn't find 3.9, fall back to any Python 3 (but warn).
+        for cmd in candidates:
+            try:
+                test = cmd + ['-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")']
+                res = subprocess.run(test, capture_output=True, text=True)
+                if res.returncode == 0:
+                    out = (res.stdout or res.stderr).strip()
                     if out.startswith('3'):
-                        return cmd[0]
+                        info(f"Found Python {out} but it's not 3.9. Build may not match target runtime.")
+                        return cmd
             except Exception:
                 continue
         return None
 
-    if not VENV_DIR.exists():
+    # Determine the desired python command (prefer 3.9)
+    desired_cmd = None
+    try:
+        desired_cmd = find_system_python()
+    except Exception:
+        desired_cmd = None
+
+    recreate = False
+    if VENV_DIR.exists():
+        # inspect existing venv's python version
+        try:
+            if os.name == 'nt':
+                existing_python = VENV_DIR / 'Scripts' / 'python.exe'
+            else:
+                existing_python = VENV_DIR / 'bin' / 'python'
+            if existing_python.exists():
+                res = subprocess.run([str(existing_python), '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'], capture_output=True, text=True)
+                out = (res.stdout or res.stderr or '').strip()
+                if not out.startswith('3.9'):
+                    info(f"Existing venv python is {out}; recreating venv to target Python 3.9")
+                    recreate = True
+            else:
+                recreate = True
+        except Exception:
+            recreate = True
+
+    if recreate or not VENV_DIR.exists():
         info(f"Creating virtual environment at {VENV_DIR}")
-        if getattr(sys, 'frozen', False):
-            # Running as a bundled exe: find a real system python to create the venv
-            info("Detected frozen executable: searching for system Python to create the venv")
-            system_py = find_system_python()
-            if not system_py:
-                raise RuntimeError(
-                    "Cannot create virtual environment: no system Python 3 found.\n"
-                    "Please run the installer with a real Python interpreter: `python installer.py`"
-                )
-            # run system python -m venv .venv_build
-            run([system_py, '-m', 'venv', str(VENV_DIR)])
+        # If we have a desired system python command (preferably 3.9), use it to create the venv
+        if desired_cmd:
+            cmd = list(desired_cmd) + ['-m', 'venv', str(VENV_DIR)]
+            run(cmd)
         else:
+            # fallback to venv.EnvBuilder when no system python command found
             venv_builder = venv.EnvBuilder(with_pip=True)
             venv_builder.create(str(VENV_DIR))
     else:
