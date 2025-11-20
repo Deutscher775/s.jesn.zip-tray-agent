@@ -373,11 +373,25 @@ def make_menu(icon):
 
 
 def create_icon_and_run():
-    # Create a simple icon image
-    icon_path = BASE_DIR / "ICON.ico"
+    # Resolve icon path both during development and when frozen by PyInstaller
+    def resource_path(relname: str) -> Path:
+        # When bundled by PyInstaller, files added via --add-data are extracted to _MEIPASS
+        if getattr(sys, 'frozen', False):
+            base = Path(getattr(sys, '_MEIPASS', PATH := ''))
+            if not base:
+                base = BASE_DIR
+        else:
+            base = BASE_DIR
+        return base / relname
+
+    icon_path = resource_path('ICON.ico')
     if icon_path.exists():
         try:
             img = PILImage.open(icon_path)
+            # Ensure the image has a sensible size for the tray
+            img = img.convert('RGBA')
+            if img.size[0] < 32 or img.size[1] < 32:
+                img = img.resize((64, 64), PILImage.LANCZOS)
         except Exception:
             img = PILImage.new('RGB', (64, 64), color=(73, 109, 137))
     else:
